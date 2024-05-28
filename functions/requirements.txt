@@ -5,3 +5,4 @@ tweepy==4.14.0
 openai==0.28
 python-dotenv==1.0.1
 requests==2.32.2
+google-cloud-storage==2.16.0

@@ -8,9 +8,16 @@ import textwrap
 import tweepy.models
 from dotenv import load_dotenv
 import os
+from google.cloud import storage
+
 
 load_dotenv()
 initialize_app()
+
+# Initialize the Google Cloud Storage client
+storage_client = storage.Client()
+bucket_name = os.environ.get("BUCKET_NAME")  # Set this environment variable
+bucket = storage_client.bucket(bucket_name)
 
 
 # Twitter API credentials
@@ -20,8 +27,7 @@ access_token = os.environ.get("ACCESS_TOKEN")
 access_token_secret = os.environ.get("ACCESS_TOKEN_SECRET")
 bearer_token = os.environ.get("BEARER_TOKEN")
 
-# OpenAI Config
-
+output_filename = "quote_image.png"
 
 # Twitter Config
 auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
@@ -40,6 +46,16 @@ api = tweepy.API(auth)
 
 
 openai.api_key = os.environ.get("OPENAI_SK")
+
+
+BASE_DIR = os.path.dirname(__file__)
+
+
+def download_file_from_gcs(filename):
+    blob = bucket.blob(filename)
+    local_path = f"/tmp/{filename}"
+    blob.download_to_filename(local_path)
+    return local_path
 
 
 # Function to get a quote from FavQs API
@@ -93,14 +109,15 @@ def prep_text(quote: str):
 
 def create_image_with_quote(quote: str):
     quote, author = prep_text(quote)
-
-    background = Image.open("bg.jpg").resize((2000, 2000))
+    bg_img_path = download_file_from_gcs("bg.jpg")
+    background = Image.open(bg_img_path).resize((2000, 2000))
     draw = ImageDraw.Draw(background)
     image_width, image_height = background.size
 
     margin = 50
     font_size = 80
-    font = ImageFont.truetype("roboto.ttf", font_size)
+    roboto_font_path = download_file_from_gcs("roboto.ttf")
+    font = ImageFont.truetype(roboto_font_path, font_size)
 
     lines = textwrap.wrap(quote, width=40)
     total_text_height = (
@@ -124,16 +141,21 @@ def create_image_with_quote(quote: str):
         draw.text((x, y), line, font=font, fill="black")
         y += text_height + 10
 
-    font = ImageFont.truetype("pacifico.ttf", 30)
+    paci_font_path = download_file_from_gcs("pacifico.ttf")
+    font = ImageFont.truetype(paci_font_path, 30)
     text_width, text_height = draw.textbbox((0, 0), author, font=font)[2:]
     x = (image_width - text_width) / 2
     draw.text((x, y + 10), author, font=font, fill="black")
+    background.save(f"/tmp/{output_filename}")
 
-    background.save("quote_image.png")
+
+def get_full_path(filename: str):
+    return os.path.join(BASE_DIR, filename)
 
 
 # Function to post the image to Twitter
-def post_image_to_twitter(image_path, message):
+def post_image_to_twitter(image_name, message):
+    image_path = f"/tmp/{image_name}"
     media: tweepy.models.Media = api.media_upload(filename=image_path)
     newapi.create_tweet(text=message, media_ids=[media.media_id])
     # tweet = api.update_status(status=message, media_ids=[media.media_id])
@@ -147,7 +169,7 @@ def main() -> tuple:
         if rating and int(rating) > 6.5:
 
             create_image_with_quote(improvement)
-            post_image_to_twitter("quote_image.png", caption)
+            post_image_to_twitter(output_filename, caption)
             return (True, improvement, caption)
         else:
             return (False, improvement, caption)
