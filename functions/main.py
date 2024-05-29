@@ -16,7 +16,7 @@ initialize_app()
 
 # Initialize the Google Cloud Storage client
 storage_client = storage.Client()
-bucket_name = os.environ.get("BUCKET_NAME")  # Set this environment variable
+bucket_name = os.environ.get("BUCKET_NAME")
 bucket = storage_client.bucket(bucket_name)
 
 
@@ -181,7 +181,7 @@ def quote_echoes(req: https_fn.Request) -> https_fn.Response:
 
     is_success, quote, caption = main()
     if is_success:
-        response = {"quote": quote, "caption": caption}
+        message = "Successful"
     else:
-        response = {"quote": quote, "caption": caption}
-    return https_fn.Response(response)
+        message = "Failed"
+    return https_fn.Response(message)
