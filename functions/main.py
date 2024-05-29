@@ -1,3 +1,4 @@
+import logging
 from firebase_functions import https_fn
 from firebase_admin import initialize_app
 import openai
@@ -9,6 +10,7 @@ import tweepy.models
 from dotenv import load_dotenv
 import os
 from google.cloud import storage
+from google.api_core.exceptions import NotFound, Forbidden
 
 
 load_dotenv()
@@ -52,10 +54,20 @@ BASE_DIR = os.path.dirname(__file__)
 
 
 def download_file_from_gcs(filename):
-    blob = bucket.blob(filename)
-    local_path = f"/tmp/{filename}"
-    blob.download_to_filename(local_path)
-    return local_path
+    try:
+        blob = bucket.blob(filename)
+        local_path = f"/tmp/{filename}"
+        blob.download_to_filename(local_path)
+        return local_path
+    except NotFound:
+        logging.error(f"The file {filename} was not found in the bucket {bucket_name}.")
+    except Forbidden:
+        logging.error(
+            f"Access denied when trying to access {filename} in bucket {bucket_name}."
+        )
+    except Exception as e:
+        logging.error(f"An error occurred: {e}")
+    return None
 
 
 # Function to get a quote from FavQs API
@@ -109,15 +121,13 @@ def prep_text(quote: str):
 
 def create_image_with_quote(quote: str):
     quote, author = prep_text(quote)
-    bg_img_path = download_file_from_gcs("bg.jpg")
-    background = Image.open(bg_img_path).resize((2000, 2000))
+    background = Image.open(download_file_from_gcs("bg.jpg")).resize((2000, 2000))
     draw = ImageDraw.Draw(background)
     image_width, image_height = background.size
 
     margin = 50
     font_size = 80
-    roboto_font_path = download_file_from_gcs("roboto.ttf")
-    font = ImageFont.truetype(roboto_font_path, font_size)
+    font = ImageFont.truetype(download_file_from_gcs("roboto.ttf"), font_size)
 
     lines = textwrap.wrap(quote, width=40)
     total_text_height = (
@@ -141,8 +151,7 @@ def create_image_with_quote(quote: str):
         draw.text((x, y), line, font=font, fill="black")
         y += text_height + 10
 
-    paci_font_path = download_file_from_gcs("pacifico.ttf")
-    font = ImageFont.truetype(paci_font_path, 30)
+    font = ImageFont.truetype(download_file_from_gcs("pacifico.ttf"), 30)
     text_width, text_height = draw.textbbox((0, 0), author, font=font)[2:]
     x = (image_width - text_width) / 2
     draw.text((x, y + 10), author, font=font, fill="black")
@@ -163,6 +172,7 @@ def post_image_to_twitter(image_name, message):
 
 def main() -> tuple:
     quote = get_quote()
+    print("RUNNING NOW......")
     if quote:
         rating, improvement, caption = rate_and_improve_quote(quote)
 
